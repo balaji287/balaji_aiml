@@ -1,0 +1,115 @@
+import java.util.*;
+import java.util.concurrent.*;
+import java.util.stream.Collectors;
+
+public class MiniCassandra {
+
+    static class Node {
+        private final String nodeId;
+        private final Map<String, String> data = new ConcurrentHashMap<>();
+
+        public Node(String nodeId) {
+            this.nodeId = nodeId;
+        }
+
+        public String getNodeId() {
+            return nodeId;
+        }
+
+        public void put(String key, String value) {
+            data.put(key, value);
+        }
+
+        public String get(String key) {
+            return data.get(key);
+        }
+
+        public void delete(String key) {
+            data.remove(key);
+        }
+
+        public boolean hasKey(String key) {
+            return data.containsKey(key);
+        }
+
+        @Override
+        public String toString() {
+            return "Node{" +
+                    "nodeId='" + nodeId + '\'' +
+                    ", data=" + data +
+                    '}';
+        }
+    }
+
+    static class Cluster {
+        private final List<Node> nodes = new ArrayList<>();
+        private final int replicationFactor;
+
+        public Cluster(int numNodes, int replicationFactor) {
+            this.replicationFactor = replicationFactor;
+            for (int i = 0; i < numNodes; i++) {
+                nodes.add(new Node("Node-" + i));
+            }
+        }
+
+        private int getHash(String key) {
+            return Math.abs(key.hashCode() % nodes.size());
+        }
+
+        public void put(String key, String value) {
+            List<Node> targetNodes = getResponsibleNodes(key);
+            for (Node node : targetNodes) {
+                node.put(key, value);
+            }
+        }
+
+        public String get(String key) {
+            for (Node node : getResponsibleNodes(key)) {
+                String value = node.get(key);
+                if (value != null) {
+                    return value;
+                }
+            }
+            return null;
+        }
+
+        public void delete(String key) {
+            for (Node node : getResponsibleNodes(key)) {
+                node.delete(key);
+            }
+        }
+
+        private List<Node> getResponsibleNodes(String key) {
+            int start = getHash(key);
+            return IntStream.range(0, replicationFactor)
+                    .mapToObj(i -> nodes.get((start + i) % nodes.size()))
+                    .collect(Collectors.toList());
+        }
+
+        public void printClusterState() {
+            nodes.forEach(System.out::println);
+        }
+    }
+
+    public static void main(String[] args) {
+        // Create a cluster with 4 nodes and a replication factor of 2
+        Cluster cluster = new Cluster(4, 2);
+
+       
+        cluster.put("user1", "Alice");
+        cluster.put("user2", "Bob");
+        cluster.put("user3", "Charlie");
+
+    
+        System.out.println("Get user1: " + cluster.get("user1")); // Alice
+        System.out.println("Get user2: " + cluster.get("user2")); // Bob
+        System.out.println("Get user3: " + cluster.get("user3")); // Charlie
+
+       
+        cluster.delete("user2");
+        System.out.println("Get user2 after delete: " + cluster.get("user2")); // null
+
+       
+        cluster.printClusterState();
+    }
+}
