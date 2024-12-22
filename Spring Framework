@@ -1,0 +1,147 @@
+import java.lang.annotation.*;
+import java.lang.reflect.*;
+import java.util.*;
+import java.util.concurrent.ConcurrentHashMap;
+
+
+@Retention(RetentionPolicy.RUNTIME)
+@Target(ElementType.TYPE)
+@interface Component {
+}
+
+@Retention(RetentionPolicy.RUNTIME)
+@Target(ElementType.CONSTRUCTOR)
+@interface Autowired {
+}
+
+class MiniApplicationContext {
+    private final Map<Class<?>, Object> beanRegistry = new ConcurrentHashMap<>();
+
+    public MiniApplicationContext(Class<?> configClass) {
+        scanComponents(configClass);
+    }
+
+    private void scanComponents(Class<?> configClass) {
+        // Scan for @Component classes
+        if (!configClass.isAnnotationPresent(ComponentScan.class)) {
+            throw new IllegalArgumentException("Missing @ComponentScan annotation on " + configClass.getName());
+        }
+        String basePackage = configClass.getAnnotation(ComponentScan.class).value();
+        Set<Class<?>> components = findClassesInPackage(basePackage);
+        instantiateComponents(components);
+    }
+
+    private Set<Class<?>> findClassesInPackage(String packageName) {
+        // Simplified for example: pretend all classes in this package are known
+        return Set.of(ServiceA.class, ServiceB.class, Application.class);
+    }
+
+    private void instantiateComponents(Set<Class<?>> components) {
+        for (Class<?> clazz : components) {
+            if (clazz.isAnnotationPresent(Component.class)) {
+                instantiateBean(clazz);
+            }
+        }
+    }
+
+    private void instantiateBean(Class<?> clazz) {
+        if (beanRegistry.containsKey(clazz)) {
+            return; // Bean already instantiated
+        }
+
+        // Find a constructor with @Autowired or default constructor
+        Constructor<?>[] constructors = clazz.getConstructors();
+        Constructor<?> autowiredConstructor = null;
+        for (Constructor<?> constructor : constructors) {
+            if (constructor.isAnnotationPresent(Autowired.class)) {
+                autowiredConstructor = constructor;
+                break;
+            }
+        }
+
+        try {
+            Object bean;
+            if (autowiredConstructor != null) {
+                // Resolve dependencies recursively
+                Class<?>[] paramTypes = autowiredConstructor.getParameterTypes();
+                Object[] dependencies = Arrays.stream(paramTypes)
+                        .map(this::getBean)
+                        .toArray();
+                bean = autowiredConstructor.newInstance(dependencies);
+            } else {
+                // Default constructor
+                bean = clazz.getConstructor().newInstance();
+            }
+
+            beanRegistry.put(clazz, bean);
+        } catch (Exception e) {
+            throw new RuntimeException("Failed to instantiate bean: " + clazz.getName(), e);
+        }
+    }
+
+    public <T> T getBean(Class<T> beanClass) {
+        if (!beanRegistry.containsKey(beanClass)) {
+            instantiateBean(beanClass);
+        }
+        return beanClass.cast(beanRegistry.get(beanClass));
+    }
+}
+
+// Step 3: Define ComponentScan Annotation
+@Retention(RetentionPolicy.RUNTIME)
+@Target(ElementType.TYPE)
+@interface ComponentScan {
+    String value();
+}
+
+// Step 4: Example Components
+@Component
+class ServiceA {
+    public void serve() {
+        System.out.println("ServiceA is serving...");
+    }
+}
+
+@Component
+class ServiceB {
+    private final ServiceA serviceA;
+
+    @Autowired
+    public ServiceB(ServiceA serviceA) {
+        this.serviceA = serviceA;
+    }
+
+    public void execute() {
+        System.out.println("ServiceB is executing...");
+        serviceA.serve();
+    }
+}
+
+// Step 5: Main Application
+@Component
+class Application {
+    private final ServiceB serviceB;
+
+    @Autowired
+    public Application(ServiceB serviceB) {
+        this.serviceB = serviceB;
+    }
+
+    public void run() {
+        System.out.println("Application is running...");
+        serviceB.execute();
+    }
+}
+
+// Step 6: Main Method
+@ComponentScan("your.package.name")
+class AppConfig {
+}
+
+public class MiniSpringApp {
+    public static void main(String[] args) {
+        MiniApplicationContext context = new MiniApplicationContext(AppConfig.class);
+        Application app = context.getBean(Application.class);
+        app.run();
+    }
+}
