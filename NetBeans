@@ -1,0 +1,159 @@
+import javax.swing.*;
+import javax.swing.border.EmptyBorder;
+import javax.swing.filechooser.FileNameExtensionFilter;
+import javax.swing.text.*;
+import java.awt.*;
+import java.awt.event.*;
+import java.io.*;
+import java.util.regex.*;
+
+public class MiniIDE {
+    private JFrame frame;
+    private JTextPane textPane;
+    private JFileChooser fileChooser;
+    private File currentFile;
+    private JTree projectTree;
+    private DefaultTreeModel treeModel;
+
+    public MiniIDE() {
+        initializeUI();
+    }
+
+    private void initializeUI() {
+        frame = new JFrame("Mini IDE");
+        frame.setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
+        frame.setSize(800, 600);
+
+        // Layout
+        JSplitPane splitPane = new JSplitPane();
+        frame.getContentPane().add(splitPane);
+
+        // Project Explorer
+        DefaultMutableTreeNode root = new DefaultMutableTreeNode("Project");
+        treeModel = new DefaultTreeModel(root);
+        projectTree = new JTree(treeModel);
+        projectTree.setBorder(new EmptyBorder(5, 5, 5, 5));
+        splitPane.setLeftComponent(new JScrollPane(projectTree));
+
+        // Text Editor
+        textPane = new JTextPane();
+        textPane.setFont(new Font("Monospaced", Font.PLAIN, 14));
+        textPane.setBorder(new EmptyBorder(5, 5, 5, 5));
+        splitPane.setRightComponent(new JScrollPane(textPane));
+
+        // Menu Bar
+        JMenuBar menuBar = new JMenuBar();
+        frame.setJMenuBar(menuBar);
+
+        JMenu fileMenu = new JMenu("File");
+        menuBar.add(fileMenu);
+
+        JMenuItem openItem = new JMenuItem("Open");
+        openItem.addActionListener(e -> openFile());
+        fileMenu.add(openItem);
+
+        JMenuItem saveItem = new JMenuItem("Save");
+        saveItem.addActionListener(e -> saveFile());
+        fileMenu.add(saveItem);
+
+        JMenuItem newFileItem = new JMenuItem("New File");
+        newFileItem.addActionListener(e -> newFile());
+        fileMenu.add(newFileItem);
+
+        JMenuItem exitItem = new JMenuItem("Exit");
+        exitItem.addActionListener(e -> System.exit(0));
+        fileMenu.add(exitItem);
+
+        // Syntax Highlighting
+        textPane.getDocument().addDocumentListener(new DocumentListener() {
+            @Override
+            public void insertUpdate(DocumentEvent e) {
+                applySyntaxHighlighting();
+            }
+
+            @Override
+            public void removeUpdate(DocumentEvent e) {
+                applySyntaxHighlighting();
+            }
+
+            @Override
+            public void changedUpdate(DocumentEvent e) {
+                applySyntaxHighlighting();
+            }
+        });
+
+        frame.setVisible(true);
+    }
+
+    private void openFile() {
+        fileChooser = new JFileChooser();
+        fileChooser.setFileFilter(new FileNameExtensionFilter("Java Files", "java"));
+        int result = fileChooser.showOpenDialog(frame);
+
+        if (result == JFileChooser.APPROVE_OPTION) {
+            currentFile = fileChooser.getSelectedFile();
+            try (BufferedReader reader = new BufferedReader(new FileReader(currentFile))) {
+                textPane.setText("");
+                String line;
+                while ((line = reader.readLine()) != null) {
+                    textPane.getDocument().insertString(textPane.getDocument().getLength(), line + "\n", null);
+                }
+                frame.setTitle("Mini IDE - " + currentFile.getName());
+            } catch (Exception ex) {
+                JOptionPane.showMessageDialog(frame, "Error opening file: " + ex.getMessage());
+            }
+        }
+    }
+
+    private void saveFile() {
+        if (currentFile == null) {
+            fileChooser = new JFileChooser();
+            fileChooser.setFileFilter(new FileNameExtensionFilter("Java Files", "java"));
+            int result = fileChooser.showSaveDialog(frame);
+
+            if (result == JFileChooser.APPROVE_OPTION) {
+                currentFile = fileChooser.getSelectedFile();
+            } else {
+                return;
+            }
+        }
+
+        try (BufferedWriter writer = new BufferedWriter(new FileWriter(currentFile))) {
+            writer.write(textPane.getText());
+            frame.setTitle("Mini IDE - " + currentFile.getName());
+        } catch (IOException ex) {
+            JOptionPane.showMessageDialog(frame, "Error saving file: " + ex.getMessage());
+        }
+    }
+
+    private void newFile() {
+        textPane.setText("");
+        currentFile = null;
+        frame.setTitle("Mini IDE - Untitled");
+    }
+
+    private void applySyntaxHighlighting() {
+        String code = textPane.getText();
+        StyledDocument doc = textPane.getStyledDocument();
+
+        // Clear existing styles
+        Style defaultStyle = textPane.addStyle("default", null);
+        StyleConstants.setForeground(defaultStyle, Color.BLACK);
+        doc.setCharacterAttributes(0, code.length(), defaultStyle, true);
+
+        // Keywords for highlighting
+        String[] keywords = {"public", "private", "class", "static", "void", "int", "String", "new", "return"};
+        Pattern pattern = Pattern.compile("\\b(" + String.join("|", keywords) + ")\\b");
+
+        Matcher matcher = pattern.matcher(code);
+        while (matcher.find()) {
+            Style keywordStyle = textPane.addStyle("keyword", null);
+            StyleConstants.setForeground(keywordStyle, Color.BLUE);
+            doc.setCharacterAttributes(matcher.start(), matcher.end() - matcher.start(), keywordStyle, true);
+        }
+    }
+
+    public static void main(String[] args) {
+        SwingUtilities.invokeLater(MiniIDE::new);
+    }
+}
