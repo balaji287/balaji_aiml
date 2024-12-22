@@ -1,0 +1,149 @@
+import java.util.*;
+import java.util.concurrent.*;
+import java.util.stream.Collectors;
+
+// Trade Class to Represent Financial Trades
+class Trade {
+    private final String tradeId;
+    private final String asset;
+    private final double quantity;
+    private final double price;
+
+    public Trade(String tradeId, String asset, double quantity, double price) {
+        this.tradeId = tradeId;
+        this.asset = asset;
+        this.quantity = quantity;
+        this.price = price;
+    }
+
+    public String getTradeId() {
+        return tradeId;
+    }
+
+    public String getAsset() {
+        return asset;
+    }
+
+    public double getQuantity() {
+        return quantity;
+    }
+
+    public double getPrice() {
+        return price;
+    }
+
+    public double getValue() {
+        return quantity * price;
+    }
+
+    @Override
+    public String toString() {
+        return String.format("Trade{id='%s', asset='%s', quantity=%.2f, price=%.2f, value=%.2f}", 
+                              tradeId, asset, quantity, price, getValue());
+    }
+}
+
+// Risk Calculation Engine
+class RiskEngine {
+    public double calculatePortfolioRisk(List<Trade> trades) {
+        // Simplified risk metric: sum of trade values weighted by asset volatility
+        Map<String, Double> volatilities = Map.of(
+            "AAPL", 0.05, "MSFT", 0.03, "GOOGL", 0.04, "TSLA", 0.06
+        );
+
+        return trades.stream()
+                .mapToDouble(trade -> trade.getValue() * volatilities.getOrDefault(trade.getAsset(), 0.05))
+                .sum();
+    }
+}
+
+// Market Data Feed Simulator
+class MarketDataFeed {
+    private final ScheduledExecutorService scheduler = Executors.newScheduledThreadPool(1);
+    private final Map<String, Double> marketPrices = new ConcurrentHashMap<>();
+
+    public MarketDataFeed() {
+        // Initialize market prices
+        marketPrices.put("AAPL", 150.0);
+        marketPrices.put("MSFT", 250.0);
+        marketPrices.put("GOOGL", 2800.0);
+        marketPrices.put("TSLA", 700.0);
+
+        // Simulate price updates
+        scheduler.scheduleAtFixedRate(this::updatePrices, 1, 1, TimeUnit.SECONDS);
+    }
+
+    private void updatePrices() {
+        Random random = new Random();
+        marketPrices.forEach((asset, price) -> {
+            double change = (random.nextDouble() - 0.5) * 2; // Random change between -1 and 1
+            marketPrices.put(asset, price + change);
+        });
+    }
+
+    public double getPrice(String asset) {
+        return marketPrices.getOrDefault(asset, 0.0);
+    }
+
+    public void stop() {
+        scheduler.shutdown();
+    }
+}
+
+// Trade Manager
+class TradeManager {
+    private final List<Trade> trades = new ArrayList<>();
+    private final MarketDataFeed marketDataFeed;
+
+    public TradeManager(MarketDataFeed marketDataFeed) {
+        this.marketDataFeed = marketDataFeed;
+    }
+
+    public void addTrade(String tradeId, String asset, double quantity) {
+        double price = marketDataFeed.getPrice(asset);
+        Trade trade = new Trade(tradeId, asset, quantity, price);
+        trades.add(trade);
+        System.out.println("Trade added: " + trade);
+    }
+
+    public void displayPortfolio() {
+        System.out.println("\nCurrent Portfolio:");
+        trades.forEach(System.out::println);
+    }
+
+    public double calculatePortfolioValue() {
+        return trades.stream().mapToDouble(Trade::getValue).sum();
+    }
+
+    public List<Trade> getTrades() {
+        return trades;
+    }
+}
+
+// Main Application
+public class MiniAthenaApp {
+    public static void main(String[] args) {
+        MarketDataFeed marketDataFeed = new MarketDataFeed();
+        TradeManager tradeManager = new TradeManager(marketDataFeed);
+        RiskEngine riskEngine = new RiskEngine();
+
+        // Simulate trades
+        tradeManager.addTrade("T1", "AAPL", 100);
+        tradeManager.addTrade("T2", "MSFT", 50);
+        tradeManager.addTrade("T3", "GOOGL", 10);
+        tradeManager.addTrade("T4", "TSLA", 5);
+
+        // Display portfolio
+        tradeManager.displayPortfolio();
+
+        // Calculate portfolio value and risk
+        double portfolioValue = tradeManager.calculatePortfolioValue();
+        double portfolioRisk = riskEngine.calculatePortfolioRisk(tradeManager.getTrades());
+
+        System.out.printf("\nPortfolio Value: %.2f\n", portfolioValue);
+        System.out.printf("Portfolio Risk: %.2f\n", portfolioRisk);
+
+        // Stop market data feed
+        marketDataFeed.stop();
+    }
+}
