@@ -1,0 +1,111 @@
+import java.io.*;
+import java.util.*;
+import java.util.concurrent.*;
+import java.util.stream.*;
+
+public class MiniHadoop {
+
+    public interface Mapper<K1, V1, K2, V2> {
+        void map(K1 key, V1 value, Context<K2, V2> context);
+    }
+
+    public interface Reducer<K2, V2> {
+        void reduce(K2 key, List<V2> values, Context<K2, V2> context);
+    }
+
+    public static class Context<K, V> {
+        private final List<Pair<K, V>> outputs = new ArrayList<>();
+
+        public void write(K key, V value) {
+            outputs.add(new Pair<>(key, value));
+        }
+
+        public List<Pair<K, V>> getOutputs() {
+            return outputs;
+        }
+    }
+
+    public static class Pair<K, V> {
+        public final K key;
+        public final V value;
+
+        public Pair(K key, V value) {
+            this.key = key;
+            this.value = value;
+        }
+
+        @Override
+        public String toString() {
+            return key + " -> " + value;
+        }
+    }
+
+    public static <K1, V1, K2, V2> List<Pair<K2, V2>> runJob(
+            Map<K1, V1> input, Mapper<K1, V1, K2, V2> mapper, Reducer<K2, V2> reducer) {
+        ExecutorService executor = Executors.newFixedThreadPool(Runtime.getRuntime().availableProcessors());
+        Context<K2, V2> mapContext = new Context<>();
+
+        
+        List<Future<?>> mapTasks = new ArrayList<>();
+        for (Map.Entry<K1, V1> entry : input.entrySet()) {
+            mapTasks.add(executor.submit(() -> mapper.map(entry.getKey(), entry.getValue(), mapContext)));
+        }
+        waitForCompletion(mapTasks);
+
+       
+        Map<K2, List<V2>> groupedData = mapContext.getOutputs().stream()
+                .collect(Collectors.groupingBy(
+                        pair -> pair.key,
+                        Collectors.mapping(pair -> pair.value, Collectors.toList())
+                ));
+
+        
+        Context<K2, V2> reduceContext = new Context<>();
+        List<Future<?>> reduceTasks = new ArrayList<>();
+        for (Map.Entry<K2, List<V2>> entry : groupedData.entrySet()) {
+            reduceTasks.add(executor.submit(() -> reducer.reduce(entry.getKey(), entry.getValue(), reduceContext)));
+        }
+        waitForCompletion(reduceTasks);
+
+        executor.shutdown();
+        return reduceContext.getOutputs();
+    }
+
+    private static void waitForCompletion(List<Future<?>> tasks) {
+        for (Future<?> task : tasks) {
+            try {
+                task.get();
+            } catch (Exception e) {
+                throw new RuntimeException("Task execution failed", e);
+            }
+        }
+    }
+
+    public static void main(String[] args) {
+        // Input Data
+        Map<Integer, String> input = Map.of(
+                1, "hello world",
+                2, "hadoop mapreduce",
+                3, "hello hadoop"
+        );
+
+        // Define Mapper
+        Mapper<Integer, String, String, Integer> mapper = (key, value, context) -> {
+            for (String word : value.split("\\s+")) {
+                context.write(word, 1);
+            }
+        };
+
+       
+        Reducer<String, Integer> reducer = (key, values, context) -> {
+            int sum = values.stream().mapToInt(Integer::intValue).sum();
+            context.write(key, sum);
+        };
+
+        
+        List<Pair<String, Integer>> result = runJob(input, mapper, reducer);
+
+        // Print Results
+        result.forEach(System.out::println);
+    }
+}
